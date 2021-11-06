@@ -70,18 +70,11 @@ def disconnect_from_group(window):
         del wm_hints["window_group"]
         window.wm_hints = wm_hints
 
+    # Remember the window's PID to restore it later.
+    orig_window_pid = window.pid
+
     # And make sure the window tracker can't look up windows that
     # share a PID, and share an icon with them.
-
-    # TODO: Make sure this doesn't have accidental collisions with
-    # other window groups.  Can't just set it to -1, because Muffin's
-    # reload_net_wm_pid in window-props.c checks if the value is
-    # positive.
-
-    # TODO: Change this back when we're done, so that we don't confuse
-    # the window manager.  Only WM_CLASS and GTK_APPLICATION_ID
-    # trigger tracked_window_changed(), so we can change the PID back
-    # once we're done.
     max_proc_id = int(open("/proc/sys/kernel/pid_max").read())
     max_legal_value = 2 ** 31 - 1
     window.pid = random.randint(max_proc_id + 1, max_legal_value)
@@ -91,6 +84,12 @@ def disconnect_from_group(window):
     window.startup_id = ""
     window.gtk_application_id = ""
     window.class_hint = ("", "")
+
+    # The window PID is used to determine the CinnamonApp, but
+    # changing it doesn't trigger a new app check.  Therefore, we can
+    # change it back to normal in case anything else needs it without
+    # merging the window back into a window group.
+    window.pid = orig_window_pid
 
 
 def main(args):
