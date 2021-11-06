@@ -94,14 +94,13 @@ def disconnect_from_group(window):
 
 def main(args):
     display = Display()
-    # For testing purposes, should use display.flush() or display.sync() once I know what I'm doing
-    display.set_synchronize()
 
     root = display.screen().root
     term = root.active_window
 
     disconnect_from_group(term)
     term.icon = dummy_icon()
+    display.sync()
 
 
 def arg_main():
