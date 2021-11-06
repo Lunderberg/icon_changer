@@ -1,6 +1,7 @@
 import array
 import ctypes
 import ctypes.util
+from enum import Enum
 from typing import Tuple, Optional, List
 
 from ctypes import (
@@ -29,16 +30,28 @@ class X11InternalError(RuntimeError):
 
 
 # Data types used by Xlib
+
 xid = c_uint64
+xbool = c_int
+xpixmap = xid
+
+
+class XID(c_uint64):
+    def __repr__(self):
+        cls_name = type(self).__name__
+        return f"{cls_name}(0x{self.value:x})"
 
 
 class XDisplay(c_void_p):
     pass
 
 
-class XWindow(xid):
-    def __repr__(self):
-        return f"XWindow(0x{self.value:x})"
+class XPixmap(XID):
+    pass
+
+
+class XWindow(XID):
+    pass
 
 
 class XAtom(c_uint64):
@@ -72,6 +85,83 @@ class XClassHint(ctypes.Structure):
         ("res_name", c_char_p),
         ("res_class", c_char_p),
     ]
+
+
+class XWMHints(ctypes.Structure):
+    _fields_ = [
+        ("flags", c_long),
+        ("input", xbool),
+        ("initial_state", c_int),
+        ("icon_pixmap", XPixmap),
+        ("icon_window", XWindow),
+        ("icon_x", c_int),
+        ("icon_y", c_int),
+        ("icon_mask", XPixmap),
+        ("window_group", XWindow),
+    ]
+
+    class Flag(Enum):
+        Input = 1 << 0
+        InitialState = 1 << 1
+        IconPixmap = 1 << 2
+        IconWindow = 1 << 3
+        IconPosition = 1 << 4
+        IconMask = 1 << 5
+        WindowGroup = 1 << 6
+
+    class InitialWindowState(Enum):
+        Withdrawn = 0
+        Normal = 1
+        Iconic = 3
+
+    def unpack(self):
+        output = {}
+        if self.flags & self.Flag.Input.value:
+            output["input"] = bool(self.input)
+
+        if self.flags & self.Flag.InitialState.value:
+            output["initial_state"] = self.initial_state
+
+        if self.flags & self.Flag.IconPixmap.value:
+            output["icon_pixmap"] = self.icon_pixmap
+
+        if self.flags & self.Flag.IconWindow.value:
+            output["icon_window"] = self.icon_window
+
+        if self.flags & self.Flag.IconPosition.value:
+            output["icon_position"] = (self.icon_x, self.icon_y)
+
+        if self.flags & self.Flag.WindowGroup.value:
+            output["window_group"] = self.window_group
+        return output
+
+    @classmethod
+    def pack(cls, hints):
+        output = cls()
+        if "input" in hints:
+            output.flags |= cls.Flag.Input.value
+            output.input = hints["input"]
+
+        if "initial_state" in hints:
+            output.flags |= cls.Flag.InitialState.value
+            output.initial_state = hints["initial_state"]
+
+        if "icon_pixmap" in hints:
+            output.flags |= cls.Flag.IconPixmap.value
+            output.icon_pixmap = hints["icon_pixmap"]
+
+        if "icon_window" in hints:
+            output.flags |= cls.Flag.IconWindow.value
+            output.icon_window = hints["icon_window"]
+
+        if "icon_position" in hints:
+            output.flags |= cls.Flag.IconPosition.value
+            (output.icon_x, output.icon_y) = hints["icon_position"]
+
+        if "window_group" in hints:
+            output.flags |= cls.Flag.WindowGroup.value
+            output.window_group = hints["window_group"]
+        return output
 
 
 XErrorHandler = ctypes.CFUNCTYPE(c_int, XDisplay, XErrorEvent)
@@ -260,6 +350,18 @@ def SetClassHint(display: XDisplay, window: XWindow, res_name: str, res_class: s
     lib.XSetClassHint(display, window, ctypes.byref(class_hint))
 
 
+def GetWMHints(display: XDisplay, window: XWindow):
+    hint_ptr = lib.XGetWMHints(display, window)
+    hints = hint_ptr.contents.unpack()
+    lib.XFree(hint_ptr)
+    return hints
+
+
+def SetWMHints(display: XDisplay, window: XWindow, hints):
+    hint_obj = XWMHints.pack(hints)
+    lib.XSetWMHints(display, window, ctypes.byref(hint_obj))
+
+
 # Type definitions for Xlib functions
 def _def_signature(name, argtypes=None, restype=None, errcheck=None):
     func = getattr(lib, name)
@@ -276,7 +378,7 @@ _def_signature("XCloseDisplay", [XDisplay], None)
 _def_signature("XDisplayName", [XDisplay], c_char_p)
 _def_signature("XDefaultScreenOfDisplay", [XDisplay], POINTER(XScreen))
 _def_signature("XScreenOfDisplay", [XDisplay, c_int], POINTER(XScreen))
-_def_signature("XInternAtom", [XDisplay, c_char_p, c_int], XAtom)
+_def_signature("XInternAtom", [XDisplay, c_char_p, xbool], XAtom)
 _def_signature("XGetAtomName", [XDisplay, XAtom], c_char_p)
 _def_signature(
     "XGetWindowProperty",
@@ -286,7 +388,7 @@ _def_signature(
         XAtom,  # Property
         c_long,  # Offset, in number of longs
         c_long,  # Length to read, in number of longs
-        c_int,  # Bool, whether to delete property after reading
+        xbool,  # Bool, whether to delete property after reading
         XAtom,  # Request type
         POINTER(XAtom),  # Return type of property
         POINTER(c_int),  # Return type of format (number of bits)
@@ -321,6 +423,9 @@ _def_signature("XUnmapWindow", [XDisplay, XWindow], c_int)
 
 _def_signature("XGetClassHint", [XDisplay, XWindow, POINTER(XClassHint)], c_int)
 _def_signature("XSetClassHint", [XDisplay, XWindow, POINTER(XClassHint)], c_int)
+
+_def_signature("XGetWMHints", [XDisplay, XWindow], POINTER(XWMHints))
+_def_signature("XSetWMHints", [XDisplay, XWindow, POINTER(XWMHints)], c_int)
 
 _def_signature("XFree", [c_void_p], c_int)
 

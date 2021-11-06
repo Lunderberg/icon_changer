@@ -53,6 +53,46 @@ def weirdify_all(display):
         window.icon = dummy_icon()
 
 
+def disconnect_from_group(window):
+    """Removes a window from the CinnamonApp it is in.
+
+    If we want a window to have an independent icon, we need to foil
+    Cinnamon/Muffin's caching strategy in cinnamon-window-tracker.c,
+    get_app_for_window().  Otherwise, the cached icon read from a
+    *.desktop file will continue to be used, rather than the icon we
+    set in _NET_WM_ICON.
+
+    """
+    # Remove the existing window_group hint, so it can't share an
+    # icon with the window group.
+    wm_hints = window.wm_hints
+    if "window_group" in wm_hints:
+        del wm_hints["window_group"]
+        window.wm_hints = wm_hints
+
+    # And make sure the window tracker can't look up windows that
+    # share a PID, and share an icon with them.
+
+    # TODO: Make sure this doesn't have accidental collisions with
+    # other window groups.  Can't just set it to -1, because Muffin's
+    # reload_net_wm_pid in window-props.c checks if the value is
+    # positive.
+
+    # TODO: Change this back when we're done, so that we don't confuse
+    # the window manager.  Only WM_CLASS and GTK_APPLICATION_ID
+    # trigger tracked_window_changed(), so we can change the PID back
+    # once we're done.
+    max_proc_id = int(open("/proc/sys/kernel/pid_max").read())
+    max_legal_value = 2 ** 31 - 1
+    window.pid = random.randint(max_proc_id + 1, max_legal_value)
+
+    # Need to set these to an empty value, because deletions don't
+    # remove the window tracker's stored value.
+    window.startup_id = ""
+    window.gtk_application_id = ""
+    window.class_hint = ("", "")
+
+
 def main(args):
     display = Display()
     # For testing purposes, should use display.flush() or display.sync() once I know what I'm doing
@@ -60,42 +100,9 @@ def main(args):
 
     root = display.screen().root
     term = root.active_window
-    # window = next(
-    #     win for win in root.all_windows if win.name == "example GUI using pyqt5"
-    # )
-    # print(window)
-    # print(window.name)
 
-    # icon = window.icon
-    # print(icon)
-    # inverted = {size: invert_image(image) for size, image in icon.items()}
-    # window.icon = inverted
-
-    # print("PID = ", window.pid)
-
-    # TODO: Maybe I need to get the window to be part of its own
-    # CinnamonApp?  Looks like I'd need to set _GTK_APPLICATION_ID and
-    # WM_CLASS to be something unique.  Though, that wouldn't explain
-    # why Discord's icon doesn't change.
-
-    # window.icon = dummy_icon()
-
-    # print(window.class_hint)
-
-    # If I change both WM_CLASS and _GTK_APPLICATION_ID to something
-    # that doesn't have a .desktop file, then I can get the icon to
-    # change.  It breaks if there's more than one window for a
-    # program, but it's really close now.
-
-    # term.class_hint = ("asdf", "asdf")
-    # window.gtk_application_id = "qwer"
-    del term.gtk_application_id
-    term.pid = 5 * term.pid % (2 ** 22)
+    disconnect_from_group(term)
     term.icon = dummy_icon()
-
-    # import IPython
-
-    # IPython.embed()
 
 
 def arg_main():

@@ -13,6 +13,7 @@ from ._raw import (
     XWindow,
     XAtom,
     XScreen,
+    XPixmap,
     GetWindowProperty,
     QueryTree,
     PropMode,
@@ -20,6 +21,8 @@ from ._raw import (
     find_int_typecode,
     GetClassHint,
     SetClassHint,
+    GetWMHints,
+    SetWMHints,
 )
 
 
@@ -392,3 +395,50 @@ class Window:
     @startup_id.deleter
     def startup_id(self):
         self.delete_property("_NET_STARTUP_ID")
+
+    @property
+    def wm_hints(self):
+        hints = GetWMHints(self.display._display, self._window)
+        updates = {
+            key: Window(self.display, value)
+            for key, value in hints.items()
+            if isinstance(value, XWindow)
+        }
+        hints.update(**updates)
+
+        updates = {
+            key: Pixmap(self.display, value)
+            for key, value in hints.items()
+            if isinstance(value, XPixmap)
+        }
+        hints.update(**updates)
+        return hints
+
+    @wm_hints.setter
+    def wm_hints(self, hints):
+        raw_hints = {}
+        for key, value in hints.items():
+            if isinstance(value, Window):
+                raw_value = value._window
+            elif isinstance(value, Pixmap):
+                raw_value = value._pixmap
+            else:
+                raw_value = value
+            raw_hints[key] = raw_value
+
+        SetWMHints(self.display._display, self._window, raw_hints)
+
+
+class Pixmap:
+    def __init__(self, display: Display, pixmap: XPixmap):
+        self.display = display
+        self._pixmap = pixmap
+
+    def __repr__(self):
+        return f"Pixmap({self.display}, {self._pixmap})"
+
+    def to_image(self):
+        # Should be able to extract using XGetImage, then lots of
+        # XGetPixel calls.
+        # https://stackoverflow.com/a/27977791/2689797
+        raise NotImplementedError()
